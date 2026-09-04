@@ -9,6 +9,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if not exist lvgl\CMakeLists.txt (
+    echo lvgl not found. Create host\lvgl -^> H:\Vellum\engine\lvgl
+    exit /b 1
+)
+
 if not exist build mkdir build
 cd build
 
@@ -49,5 +54,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Build OK: vellum host hl.exe -^> game root
+echo Build OK: hl.exe
 endlocal
