@@ -24,6 +24,37 @@ static volatile LONG g_result = 0;
 static volatile LONG g_embed = 0;
 static char g_address[256];
 static HWND g_sdl = NULL;
+static DWORD g_sdlTid = 0;
+
+static void DetachGameInput(void)
+{
+    if (g_sdlTid != 0 && g_threadId != 0 && g_sdlTid != g_threadId) {
+        AttachThreadInput(g_threadId, g_sdlTid, FALSE);
+    }
+    g_sdlTid = 0;
+}
+
+static void GiveGameFocus(HWND sdl)
+{
+    DWORD sdlTid;
+
+    if (sdl == NULL || !IsWindow(sdl)) {
+        return;
+    }
+    sdlTid = GetWindowThreadProcessId(sdl, NULL);
+    if (sdlTid != 0 && g_threadId != 0 && sdlTid != g_threadId) {
+        if (g_sdlTid != 0 && g_sdlTid != sdlTid) {
+            AttachThreadInput(g_threadId, g_sdlTid, FALSE);
+        }
+        AttachThreadInput(g_threadId, sdlTid, TRUE);
+        g_sdlTid = sdlTid;
+    }
+    EnableWindow(sdl, TRUE);
+    SetForegroundWindow(sdl);
+    BringWindowToTop(sdl);
+    SetActiveWindow(sdl);
+    SetFocus(sdl);
+}
 
 static void Finish(LONG result)
 {
@@ -80,12 +111,16 @@ static HWND FindSdl(void)
 static void LayoutGame(void)
 {
     RECT rc;
+    POINT pt;
 
     if (g_frame == NULL || g_sdl == NULL || !IsWindow(g_sdl)) {
         return;
     }
     GetClientRect(g_frame, &rc);
-    MoveWindow(g_sdl, 0, 0, rc.right, rc.bottom, TRUE);
+    pt.x = 0;
+    pt.y = 0;
+    ClientToScreen(g_frame, &pt);
+    MoveWindow(g_sdl, pt.x, pt.y, rc.right, rc.bottom, TRUE);
 }
 
 static void FitSdl(void)
@@ -103,17 +138,19 @@ static void FitSdl(void)
     }
     if (g_sdl != sdl) {
         style = GetWindowLongA(sdl, GWL_STYLE);
-        style &= ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU |
+        style &= ~(WS_CHILD | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU |
                    WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_OVERLAPPEDWINDOW);
-        style |= WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+        style |= WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
         SetWindowLongA(sdl, GWL_STYLE, style);
         ex = GetWindowLongA(sdl, GWL_EXSTYLE);
         ex &= ~(WS_EX_APPWINDOW | WS_EX_TOOLWINDOW);
         SetWindowLongA(sdl, GWL_EXSTYLE, ex);
-        SetParent(sdl, g_frame);
+        SetParent(sdl, NULL);
+        SetWindowLongPtrA(sdl, GWLP_HWNDPARENT, (LONG_PTR)g_frame);
         SetWindowPos(sdl, HWND_TOP, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
         g_sdl = sdl;
+        GiveGameFocus(sdl);
     }
     ShowWindow(sdl, SW_SHOW);
     LayoutGame();
@@ -170,6 +207,18 @@ static LRESULT CALLBACK FrameProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         EndPaint(hwnd, &ps);
         return 0;
     }
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) != WA_INACTIVE &&
+            InterlockedCompareExchange(&g_embed, 0, 0) != 0) {
+            GiveGameFocus(g_sdl);
+        }
+        return 0;
+    case WM_SETFOCUS:
+        if (InterlockedCompareExchange(&g_embed, 0, 0) != 0) {
+            GiveGameFocus(g_sdl);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     case WM_MOUSEMOVE:
         Ui_OnMouse((short)LOWORD(lParam), (short)HIWORD(lParam), -1);
         return 0;
@@ -189,6 +238,8 @@ static LRESULT CALLBACK FrameProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return 0;
     case WM_DESTROY:
         KillTimer(hwnd, UI_TIMER);
+        DetachGameInput();
+        g_sdl = NULL;
         Ui_Shutdown();
         g_frame = NULL;
         Finish(0);
@@ -256,6 +307,7 @@ int Shell_Create(HINSTANCE instance, const char *gameDir)
     InterlockedExchange(&g_result, 0);
     InterlockedExchange(&g_embed, 0);
     g_sdl = NULL;
+    g_sdlTid = 0;
 
     g_ready = CreateEventW(NULL, TRUE, FALSE, NULL);
     g_choice = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -322,6 +374,7 @@ void Shell_EmbedGame(void)
 
 void Shell_Destroy(void)
 {
+    DetachGameInput();
     if (g_threadId != 0) {
         PostThreadMessageW(g_threadId, WM_QUIT, 0, 0);
     }
