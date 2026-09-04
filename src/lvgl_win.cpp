@@ -1,4 +1,5 @@
 #include "lvgl_win.h"
+#include "prefetch.h"
 
 #include <lvgl.h>
 
@@ -27,6 +28,9 @@ static lv_image_dsc_t g_bgDsc;
 static uint8_t *g_bgPixels = NULL;
 static UiConnectFn g_onConnect = NULL;
 static UiQuitFn g_onQuit = NULL;
+static lv_obj_t *g_banner = NULL;
+static lv_obj_t *g_bannerLabel = NULL;
+static lv_obj_t *g_bar = NULL;
 
 static lv_font_t *LoadUiFont(int pixelSize)
 {
@@ -177,7 +181,7 @@ static void BuildChrome(lv_obj_t *screen, int width, int height)
     lv_obj_set_style_pad_row(panel, 8, 0);
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_size(panel, 220, LV_SIZE_CONTENT);
-    lv_obj_set_pos(panel, 24, 36);
+    lv_obj_set_pos(panel, 24, 64);
 
     btn = lv_button_create(panel);
     lv_obj_set_width(btn, LV_PCT(100));
@@ -201,11 +205,44 @@ static void BuildChrome(lv_obj_t *screen, int width, int height)
     lv_obj_center(label);
     lv_obj_add_event_cb(btn, OnQuitClicked, LV_EVENT_CLICKED, NULL);
 
+    g_banner = lv_obj_create(screen);
+    lv_obj_remove_flag(g_banner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(g_banner, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(g_banner, width, 52);
+    lv_obj_set_pos(g_banner, 0, 0);
+    lv_obj_set_style_radius(g_banner, 0, 0);
+    lv_obj_set_style_border_width(g_banner, 0, 0);
+    lv_obj_set_style_pad_all(g_banner, 0, 0);
+    lv_obj_set_style_bg_color(g_banner, lv_color_hex(0x101418), 0);
+    lv_obj_set_style_bg_opa(g_banner, LV_OPA_80, 0);
+    lv_obj_add_flag(g_banner, LV_OBJ_FLAG_HIDDEN);
+
+    g_bannerLabel = lv_label_create(g_banner);
+    lv_obj_set_style_text_color(g_bannerLabel, lv_color_hex(0xe8eef6), 0);
+    lv_obj_align(g_bannerLabel, LV_ALIGN_LEFT_MID, 16, -4);
+    lv_label_set_long_mode(g_bannerLabel, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(g_bannerLabel, width - 32);
+
+    g_bar = lv_bar_create(g_banner);
+    lv_obj_set_size(g_bar, width, 3);
+    lv_obj_align(g_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_radius(g_bar, 0, 0);
+    lv_obj_set_style_radius(g_bar, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(g_bar, lv_color_hex(0x1a2430), 0);
+    lv_obj_set_style_bg_opa(g_bar, LV_OPA_40, 0);
+    lv_obj_set_style_bg_color(g_bar, lv_color_hex(0x3d8bfd), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(g_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_bar_set_range(g_bar, 0, 100);
+    lv_bar_set_value(g_bar, 0, LV_ANIM_OFF);
+
     (void)height;
 }
 
 static void TeardownDisplay(void)
 {
+    g_banner = NULL;
+    g_bannerLabel = NULL;
+    g_bar = NULL;
     if (g_indev != NULL) {
         lv_indev_delete(g_indev);
         g_indev = NULL;
@@ -289,9 +326,30 @@ void Ui_Tick(void)
 {
     uint32_t now = GetTickCount();
     uint32_t elapsed = now - g_lastTick;
+    int active = 0;
+    int percent = 0;
+    char name[128];
+    char text[160];
+
     g_lastTick = now;
     if (g_disp == NULL) {
         return;
+    }
+    Prefetch_GetUi(&active, &percent, name, sizeof(name));
+    if (g_banner != NULL) {
+        if (active) {
+            lv_obj_remove_flag(g_banner, LV_OBJ_FLAG_HIDDEN);
+            if (name[0] != '\0') {
+                _snprintf(text, sizeof(text), "Загрузка  %s", name);
+                text[sizeof(text) - 1] = '\0';
+            } else {
+                _snprintf(text, sizeof(text), "Загрузка...");
+            }
+            lv_label_set_text(g_bannerLabel, text);
+            lv_bar_set_value(g_bar, percent, LV_ANIM_OFF);
+        } else {
+            lv_obj_add_flag(g_banner, LV_OBJ_FLAG_HIDDEN);
+        }
     }
     lv_tick_inc(elapsed);
     lv_timer_handler();
@@ -335,6 +393,9 @@ void Ui_OnMouse(int x, int y, int pressed)
 
 void Ui_Shutdown(void)
 {
+    g_banner = NULL;
+    g_bannerLabel = NULL;
+    g_bar = NULL;
     TeardownDisplay();
     free(g_bgPixels);
     g_bgPixels = NULL;

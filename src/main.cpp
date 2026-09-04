@@ -1,4 +1,6 @@
 #include "engine_api.h"
+#include "module.h"
+#include "prefetch.h"
 #include "shell.h"
 #include "steam.h"
 
@@ -131,7 +133,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
         return 1;
     }
 
+    Prefetch_Start(dir);
+
     if (!Shell_Wait(connectAddr, sizeof(connectAddr))) {
+        Prefetch_Stop();
         Shell_Destroy();
         if (mutex != NULL) {
             CloseHandle(mutex);
@@ -140,12 +145,15 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
     }
 
     if (!Steam_Start(dir)) {
+        Prefetch_Stop();
         Shell_Destroy();
         if (mutex != NULL) {
             CloseHandle(mutex);
         }
         return 1;
     }
+
+    Module_LoadVellum(dir);
 
     Shell_EmbedGame();
 
@@ -195,6 +203,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
     fsModule = LoadGameLibrary(dir, "FileSystem_Stdio.dll");
     if (fsModule == NULL) {
         Fail("Can't find FileSystem_Stdio.dll");
+        Prefetch_Stop();
         Shell_Destroy();
         Steam_Stop();
         if (mutex != NULL) {
@@ -206,6 +215,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
     engineModule = LoadGameLibrary(dir, engineFile);
     if (engineModule == NULL || ModuleFactory(engineModule) == NULL) {
         Fail("Can't load engine DLL");
+        Prefetch_Stop();
         Shell_Destroy();
         Steam_Stop();
         if (mutex != NULL) {
@@ -216,6 +226,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
     engine = (IEngineAPI *)ModuleFactory(engineModule)(VENGINE_LAUNCHER_API_VERSION, NULL);
     if (engine == NULL) {
         Fail("CreateInterface(VENGINE_LAUNCHER_API_VERSION002) failed");
+        Prefetch_Stop();
         Shell_Destroy();
         Steam_Stop();
         if (mutex != NULL) {
@@ -234,6 +245,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
     } while (result == ENGRUN_CHANGED_VIDEOMODE);
 
     Shell_Destroy();
+    Prefetch_Stop();
     Steam_Stop();
     if (mutex != NULL) {
         CloseHandle(mutex);
