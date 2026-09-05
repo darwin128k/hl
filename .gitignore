@@ -1,8 +1,5 @@
 # CMake build tree
 build/
 
-# Pristine Valve-owned binaries (not redistributed)
+# Previous hl.exe from the game root (not redistributed)
 orig/
-
-# LVGL lives in H:\Vellum\engine\lvgl (junction host\lvgl)
-lvgl/

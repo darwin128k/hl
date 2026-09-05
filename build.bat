@@ -9,15 +9,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist lvgl\CMakeLists.txt (
-    echo lvgl not found. Create host\lvgl -^> H:\Vellum\engine\lvgl
-    exit /b 1
-)
-
 if not exist build mkdir build
 cd build
 
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl ..
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl ..
 if errorlevel 1 (
     echo CMake configure failed
     exit /b 1

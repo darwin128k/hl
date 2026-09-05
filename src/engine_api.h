@@ -1,7 +1,7 @@
-#ifndef VELLUM_HOST_ENGINE_API_H
-#define VELLUM_HOST_ENGINE_API_H
+#ifndef HL_ENGINE_API_H
+#define HL_ENGINE_API_H
 
-/* Layout matches the public GoldSrc launcher API (VENGINE_LAUNCHER_API_VERSION002). */
+/* Public GoldSrc launcher API: VENGINE_LAUNCHER_API_VERSION002. */
 
 class IBaseInterface
 {
