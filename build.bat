@@ -9,10 +9,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
+set LAUNCHER_DLLS=ON
+if /I "%~1"=="nodll" set LAUNCHER_DLLS=OFF
+
 if not exist build mkdir build
 cd build
 
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl ..
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DHL_LAUNCHER_DLLS=%LAUNCHER_DLLS% ..
 if errorlevel 1 (
     echo CMake configure failed
     exit /b 1
@@ -49,5 +52,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Build OK: hl.exe
+echo Build OK: hl.exe ^(HL_LAUNCHER_DLLS=%LAUNCHER_DLLS%^)
 endlocal

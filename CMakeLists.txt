@@ -6,6 +6,8 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 enable_language(RC)
 
+option(HL_LAUNCHER_DLLS "Load extra DLLs from -dll command-line flags" ON)
+
 add_executable(hl WIN32 src/main.cpp src/launcher.cpp)
 
 set(HL_RES "${CMAKE_CURRENT_BINARY_DIR}/hl.res")
@@ -20,6 +22,12 @@ target_sources(hl PRIVATE "${HL_RES}")
 set_source_files_properties("${HL_RES}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 target_link_libraries(hl PRIVATE user32)
 target_compile_definitions(hl PRIVATE _CRT_SECURE_NO_WARNINGS)
+if(HL_LAUNCHER_DLLS)
+    target_compile_definitions(hl PRIVATE HL_LAUNCHER_DLLS)
+    message(STATUS "hl: extra -dll loading enabled")
+else()
+    message(STATUS "hl: extra -dll loading disabled")
+endif()
 if (MSVC)
     target_compile_options(hl PRIVATE /utf-8)
 endif()
