@@ -2,7 +2,7 @@
 
 `hl.exe` is a thin `WinMain` over `HlLauncher_Run` in `src/launcher.cpp` (mutex, filesystem, `hw.dll` / `sw.dll`, `IEngineAPI::Run`). Other programs may compile those two files without this repo knowing about them.
 
-Does not load Vellum, LVGL, or Steam. For this No-Steam install start the game through `cstrike.exe` (revloader).
+Does not load extra mods, LVGL, or Steam. Optional `-dll name.dll` (compile out with `-DHL_LAUNCHER_DLLS=OFF`). For this No-Steam install start the game through `cstrike.exe` (revloader).
 
 ## Build
 
