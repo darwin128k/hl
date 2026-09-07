@@ -42,6 +42,104 @@ static int HasArg(const char *cmd, const char *arg)
     return 0;
 }
 
+static int IsSpaceChar(char c)
+{
+    return c == ' ' || c == '\t';
+}
+
+static int ParmTakesValue(const char *parm)
+{
+    return _stricmp(parm, "-w") == 0 || _stricmp(parm, "-width") == 0
+        || _stricmp(parm, "-h") == 0 || _stricmp(parm, "-height") == 0
+        || _stricmp(parm, "-game") == 0 || _stricmp(parm, "+load") == 0
+        || _stricmp(parm, "+connect") == 0;
+}
+
+static void RemoveParm(char *cmd, const char *parm)
+{
+    size_t n = strlen(parm);
+    char *p = cmd;
+
+    while ((p = strstr(p, parm)) != NULL) {
+        char before;
+        char after;
+        char *end;
+
+        before = (p == cmd) ? ' ' : p[-1];
+        if (before != ' ' && before != '\t') {
+            p += n;
+            continue;
+        }
+        after = p[n];
+        if (after != '\0' && after != ' ' && after != '\t') {
+            p += n;
+            continue;
+        }
+        end = p + n;
+        while (IsSpaceChar(*end)) {
+            end++;
+        }
+        if (ParmTakesValue(parm) && *end != '\0' && *end != '-' && *end != '+') {
+            if (*end == '"') {
+                end++;
+                while (*end != '\0' && *end != '"') {
+                    end++;
+                }
+                if (*end == '"') {
+                    end++;
+                }
+            } else {
+                while (*end != '\0' && !IsSpaceChar(*end)) {
+                    end++;
+                }
+            }
+        }
+        while (IsSpaceChar(*end)) {
+            end++;
+        }
+        memmove(p, end, strlen(end) + 1);
+    }
+}
+
+static void AppendCmd(char *cmd, size_t cmdSize, const char *arg)
+{
+    size_t n = strlen(cmd);
+    if (arg == NULL || arg[0] == '\0') {
+        return;
+    }
+    if (n > 0 && n + 1 < cmdSize && !IsSpaceChar(cmd[n - 1])) {
+        cmd[n++] = ' ';
+        cmd[n] = '\0';
+    }
+    _snprintf(cmd + n, cmdSize - n, "%s", arg);
+    cmd[cmdSize - 1] = '\0';
+}
+
+static void MergePostRestart(char *cmdline, size_t cmdSize, const char *postRestart)
+{
+    static const char *kDrop[] = {
+        "-sw", "-startwindowed", "-windowed", "-window",
+        "-full", "-fullscreen", "-soft", "-software",
+        "-gl", "-d3d", "-w", "-width", "-h", "-height", "-novid",
+        NULL
+    };
+    int i;
+
+    if (postRestart == NULL || postRestart[0] == '\0') {
+        return;
+    }
+    for (i = 0; kDrop[i] != NULL; i++) {
+        RemoveParm(cmdline, kDrop[i]);
+    }
+    if (strstr(postRestart, "-game") != NULL) {
+        RemoveParm(cmdline, "-game");
+    }
+    if (strstr(postRestart, "+load") != NULL) {
+        RemoveParm(cmdline, "+load");
+    }
+    AppendCmd(cmdline, cmdSize, postRestart);
+}
+
 static CreateInterfaceFn ModuleFactory(HMODULE module)
 {
     if (module == NULL) {
@@ -217,36 +315,9 @@ int HlLauncher_Run(HINSTANCE instance, const char *cmdlineIn)
     }
     cmdline[sizeof(cmdline) - 1] = '\0';
 
-    engineFile = (HasArg(cmdline, "-sw") || HasArg(cmdline, "-software")) ? "sw.dll" : "hw.dll";
-
-    fsModule = LoadGameLibrary(dir, "FileSystem_Stdio.dll");
-    if (fsModule == NULL) {
-        Fail("Can't find FileSystem_Stdio.dll");
-        if (mutex != NULL) {
-            CloseHandle(mutex);
-        }
-        return 1;
-    }
-    fsFactory = ModuleFactory(fsModule);
-
-    engineModule = LoadGameLibrary(dir, engineFile);
-    if (engineModule == NULL || ModuleFactory(engineModule) == NULL) {
-        Fail("Can't load engine DLL");
-        if (mutex != NULL) {
-            CloseHandle(mutex);
-        }
-        return 1;
-    }
-    engine = (IEngineAPI *)ModuleFactory(engineModule)(VENGINE_LAUNCHER_API_VERSION, NULL);
-    if (engine == NULL) {
-        Fail("CreateInterface(VENGINE_LAUNCHER_API_VERSION002) failed");
-        if (mutex != NULL) {
-            CloseHandle(mutex);
-        }
-        return 1;
-    }
-
 #ifdef HL_LAUNCHER_DLLS
+    /* Sidecars stay loaded across a video restart. The engine itself must
+     * not: stock hl.exe / Thanatos unload hw.dll + filesystem after Run. */
     if (!LoadCommandLineDlls(dir, cmdline)) {
         if (mutex != NULL) {
             CloseHandle(mutex);
@@ -255,14 +326,45 @@ int HlLauncher_Run(HINSTANCE instance, const char *cmdlineIn)
     }
 #endif
 
-    do {
+    result = ENGRUN_QUITTING;
+    for (;;) {
         postRestart[0] = '\0';
-        result = engine->Run(instance, dir, cmdline, postRestart, LauncherFactory, fsFactory);
-        if (result == ENGRUN_CHANGED_VIDEOMODE && postRestart[0] != '\0') {
-            _snprintf(cmdline, sizeof(cmdline), "%s", postRestart);
-            cmdline[sizeof(cmdline) - 1] = '\0';
+        engineFile = (HasArg(cmdline, "-sw") || HasArg(cmdline, "-software")) ? "sw.dll" : "hw.dll";
+
+        fsModule = LoadGameLibrary(dir, "FileSystem_Stdio.dll");
+        if (fsModule == NULL) {
+            Fail("Can't find FileSystem_Stdio.dll");
+            result = ENGRUN_UNSUPPORTED_VIDEOMODE;
+            break;
         }
-    } while (result == ENGRUN_CHANGED_VIDEOMODE);
+        fsFactory = ModuleFactory(fsModule);
+
+        engineModule = LoadGameLibrary(dir, engineFile);
+        if (engineModule == NULL || ModuleFactory(engineModule) == NULL) {
+            Fail("Can't load engine DLL");
+            FreeLibrary(fsModule);
+            result = ENGRUN_UNSUPPORTED_VIDEOMODE;
+            break;
+        }
+        engine = (IEngineAPI *)ModuleFactory(engineModule)(VENGINE_LAUNCHER_API_VERSION, NULL);
+        if (engine == NULL) {
+            Fail("CreateInterface(VENGINE_LAUNCHER_API_VERSION002) failed");
+            FreeLibrary(engineModule);
+            FreeLibrary(fsModule);
+            result = ENGRUN_UNSUPPORTED_VIDEOMODE;
+            break;
+        }
+
+        result = engine->Run(instance, dir, cmdline, postRestart, LauncherFactory, fsFactory);
+        engine = NULL;
+        FreeLibrary(engineModule);
+        FreeLibrary(fsModule);
+
+        if (result != ENGRUN_CHANGED_VIDEOMODE) {
+            break;
+        }
+        MergePostRestart(cmdline, sizeof(cmdline), postRestart);
+    }
 
     if (mutex != NULL) {
         CloseHandle(mutex);
