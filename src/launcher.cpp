@@ -52,7 +52,7 @@ static int ParmTakesValue(const char *parm)
     return _stricmp(parm, "-w") == 0 || _stricmp(parm, "-width") == 0
         || _stricmp(parm, "-h") == 0 || _stricmp(parm, "-height") == 0
         || _stricmp(parm, "-game") == 0 || _stricmp(parm, "+load") == 0
-        || _stricmp(parm, "+connect") == 0;
+        || _stricmp(parm, "+connect") == 0 || _stricmp(parm, "-dll") == 0;
 }
 
 static void RemoveParm(char *cmd, const char *parm)
@@ -317,13 +317,16 @@ int HlLauncher_Run(HINSTANCE instance, const char *cmdlineIn)
 
 #ifdef HL_LAUNCHER_DLLS
     /* Sidecars stay loaded across a video restart. The engine itself must
-     * not: stock hl.exe / Thanatos unload hw.dll + filesystem after Run. */
+     * not: stock hl.exe / Thanatos unload hw.dll + filesystem after Run.
+     * Strip -dll after load: GoldSrc treats -dll as the game DLL
+     * (GiveFnptrsToDll / mp.dll), not a launcher sidecar. */
     if (!LoadCommandLineDlls(dir, cmdline)) {
         if (mutex != NULL) {
             CloseHandle(mutex);
         }
         return 1;
     }
+    RemoveParm(cmdline, "-dll");
 #endif
 
     result = ENGRUN_QUITTING;
