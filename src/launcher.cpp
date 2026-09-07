@@ -1,5 +1,8 @@
 #include "launcher.h"
 #include "engine_api.h"
+#ifdef HL_METAHHOOK
+#include "metahook_embed.h"
+#endif
 
 #include <windows.h>
 
@@ -148,6 +151,7 @@ static CreateInterfaceFn ModuleFactory(HMODULE module)
     return (CreateInterfaceFn)GetProcAddress(module, "CreateInterface");
 }
 
+#ifndef HL_METAHHOOK
 static IBaseInterface *LauncherFactory(const char *name, int *returnCode)
 {
     (void)name;
@@ -156,6 +160,7 @@ static IBaseInterface *LauncherFactory(const char *name, int *returnCode)
     }
     return NULL;
 }
+#endif
 
 static HMODULE LoadGameLibrary(const char *dir, const char *file)
 {
@@ -326,10 +331,24 @@ int HlLauncher_Run(HINSTANCE instance, const char *cmdlineIn)
     }
 #endif
 
+#ifdef HL_METAHHOOK
+    if (!MetaHook_Startup(cmdline)) {
+        Fail("MetaHook WSAStartup failed");
+        if (mutex != NULL) {
+            CloseHandle(mutex);
+        }
+        return 1;
+    }
+#endif
+
     result = ENGRUN_QUITTING;
     for (;;) {
         postRestart[0] = '\0';
         engineFile = (HasArg(cmdline, "-sw") || HasArg(cmdline, "-software")) ? "sw.dll" : "hw.dll";
+
+#ifdef HL_METAHHOOK
+        MetaHook_SetCmdLine(cmdline);
+#endif
 
         fsModule = LoadGameLibrary(dir, "FileSystem_Stdio.dll");
         if (fsModule == NULL) {
@@ -339,9 +358,21 @@ int HlLauncher_Run(HINSTANCE instance, const char *cmdlineIn)
         }
         fsFactory = ModuleFactory(fsModule);
 
+#ifdef HL_METAHHOOK
+        if (!MetaHook_BindFileSystem(fsModule, dir)) {
+            Fail("MetaHook could not bind FileSystem_Stdio.dll");
+            FreeLibrary(fsModule);
+            result = ENGRUN_UNSUPPORTED_VIDEOMODE;
+            break;
+        }
+#endif
+
         engineModule = LoadGameLibrary(dir, engineFile);
         if (engineModule == NULL || ModuleFactory(engineModule) == NULL) {
             Fail("Can't load engine DLL");
+#ifdef HL_METAHHOOK
+            MetaHook_UnbindFileSystem();
+#endif
             FreeLibrary(fsModule);
             result = ENGRUN_UNSUPPORTED_VIDEOMODE;
             break;
@@ -349,22 +380,41 @@ int HlLauncher_Run(HINSTANCE instance, const char *cmdlineIn)
         engine = (IEngineAPI *)ModuleFactory(engineModule)(VENGINE_LAUNCHER_API_VERSION, NULL);
         if (engine == NULL) {
             Fail("CreateInterface(VENGINE_LAUNCHER_API_VERSION002) failed");
+#ifdef HL_METAHHOOK
+            MetaHook_UnbindFileSystem();
+#endif
             FreeLibrary(engineModule);
             FreeLibrary(fsModule);
             result = ENGRUN_UNSUPPORTED_VIDEOMODE;
             break;
         }
 
+#ifdef HL_METAHHOOK
+        MetaHook_LoadEngine(engineModule, engineFile, dir);
+        result = engine->Run(instance, dir, MetaHook_CmdLine(), postRestart,
+                             (CreateInterfaceFn)MetaHook_GetFactory(), fsFactory);
+        engine = NULL;
+        MetaHook_ExitGame((int)result);
+        FreeLibrary(engineModule);
+        MetaHook_ShutdownPlugins();
+        MetaHook_UnbindFileSystem();
+        FreeLibrary(fsModule);
+#else
         result = engine->Run(instance, dir, cmdline, postRestart, LauncherFactory, fsFactory);
         engine = NULL;
         FreeLibrary(engineModule);
         FreeLibrary(fsModule);
+#endif
 
         if (result != ENGRUN_CHANGED_VIDEOMODE) {
             break;
         }
         MergePostRestart(cmdline, sizeof(cmdline), postRestart);
     }
+
+#ifdef HL_METAHHOOK
+    MetaHook_Finish();
+#endif
 
     if (mutex != NULL) {
         CloseHandle(mutex);

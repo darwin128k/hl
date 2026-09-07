@@ -7,6 +7,8 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 enable_language(RC)
 
 option(HL_LAUNCHER_DLLS "Load extra DLLs from -dll command-line flags" ON)
+option(HL_METAHHOOK "Embed MetaHookSv (hzqst) in this process" OFF)
+set(METAHOOK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../metahook" CACHE PATH "Path to MetaHookSv")
 
 add_executable(hl WIN32 src/main.cpp src/launcher.cpp)
 
@@ -30,5 +32,9 @@ else()
 endif()
 if (MSVC)
     target_compile_options(hl PRIVATE /utf-8)
+endif()
+if(HL_METAHHOOK)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MetaHookEmbed.cmake")
+    hl_embed_metahook(hl "${METAHOOK_DIR}")
 endif()
 set_target_properties(hl PROPERTIES OUTPUT_NAME hl)

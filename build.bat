@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d %~dp0
+cd /d "%~dp0"
 
 set VCVARS="C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
 call %VCVARS% >nul
@@ -10,12 +10,21 @@ if errorlevel 1 (
 )
 
 set LAUNCHER_DLLS=ON
+set METAHHOOK=OFF
 if /I "%~1"=="nodll" set LAUNCHER_DLLS=OFF
+if /I "%~1"=="metahook" set METAHHOOK=ON
+if /I "%~2"=="nodll" set LAUNCHER_DLLS=OFF
+if /I "%~2"=="metahook" set METAHHOOK=ON
+
+if "%METAHHOOK%"=="ON" (
+    call "%~dp0prepare-metahook.bat"
+    if errorlevel 1 exit /b 1
+)
 
 if not exist build mkdir build
 cd build
 
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DHL_LAUNCHER_DLLS=%LAUNCHER_DLLS% ..
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DHL_LAUNCHER_DLLS=%LAUNCHER_DLLS% -DHL_METAHHOOK=%METAHHOOK% ..
 if errorlevel 1 (
     echo CMake configure failed
     exit /b 1
@@ -52,5 +61,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Build OK: hl.exe ^(HL_LAUNCHER_DLLS=%LAUNCHER_DLLS%^)
+echo Build OK: hl.exe ^(HL_LAUNCHER_DLLS=%LAUNCHER_DLLS%, HL_METAHHOOK=%METAHHOOK%^)
 endlocal
